@@ -10,15 +10,10 @@
 
 
 (defmacro degrees->radians (degrees)
-  (coerce (* 2 pi (/ degrees 360)) 'single-float))
+  `(coerce (* 2 pi (/ ,degrees 360)) 'single-float))
 
-(defun radians->degrees (radians)
-  (coerce (* 180 (/ radians pi)) 'single-float))
-
-(defun make-vector (a b c)
-  (sb-cga:vec (float a)
-	      (float b)
-	      (float c)))
+(defmacro radians->degrees (radians)
+  `(coerce (* 180 (/ ,radians pi)) 'single-float))
 
 (defun make-matrix (m11 m12 m13 m14 
 		    m21 m22 m23 m24
@@ -46,8 +41,8 @@
     
     (make-matrix (/ (* 2 near) (- right left)) 0 A 0
 		 0 (/ (* 2 near) (- top bottom)) B 0
-		 0 0 C -1
-		 0 0 D 0)))
+		 0 0 C D
+		 0 0 -1 0)))
 
 (defun make-perspective-transform  (fovy aspect znear zfar)
   "Create a raw CFFI perspective matrix."
@@ -56,37 +51,33 @@
     (make-frustum-transform (- xmax) xmax (- ymax) ymax znear zfar)))
 
 
-  ;; int glhUnProjectf(float winx, float winy, float winz, float *modelview, float *projection, int *viewport, float *objectCoordinate)
-  ;; {
-  ;;     //Transformation matrices
-  ;;     float m[16], A[16];
-  ;;     float in[4], out[4];
-  ;;     //Calculation for inverting a matrix, compute projection x modelview
-  ;;     //and store in A[16]
-(defun unproject (x y z
-		  modelview-matrix projection-matrix
-		  viewport-x viewport-y viewport-width viewport-height)
+(defun transform-point (p m)
+  (let ((w (/
+	    (+ (* (elt m 3) (elt p 0))
+	       (* (elt m 7) (elt p 1))
+	       (* (elt m 11) (elt p 2))
+	       (elt m 15)))))
+    (make-vector (* w (+ (* (elt m 0) (elt p 0))
+			 (* (elt m 4) (elt p 1))
+			 (* (elt m 8) (elt p 2))
+			 (elt m 12)))
+		 (* w (+ (* (elt m 1) (elt p 0))
+			 (* (elt m 5) (elt p 1))
+			 (* (elt m 9) (elt p 2))
+			 (elt m 13)))
+		 (* w (+ (* (elt m 2) (elt p 0))
+			 (* (elt m 6) (elt p 1))
+			 (* (elt m 10) (elt p 2))
+			 (elt m 14))))))
 
-  )
-		  
-  ;;     MultiplyMatrices4by4OpenGL_FLOAT(A, projection, modelview);
-  ;;     //Now compute the inverse of matrix A
-  ;;     if(glhInvertMatrixf2(A, m)==0)
-  ;;        return 0;
-  ;;     //Transformation of normalized coordinates between -1 and 1
-  ;;     in[0]=(winx-(float)viewport[0])/(float)viewport[2]*2.0-1.0;
-  ;;     in[1]=(winy-(float)viewport[1])/(float)viewport[3]*2.0-1.0;
-  ;;     in[2]=2.0*winz-1.0;
-  ;;     in[3]=1.0;
-  ;;     //Objects coordinates
-  ;;     MultiplyMatrixByVector4by4OpenGL_FLOAT(out, m, in);
-  ;;     if(out[3]==0.0)
-  ;;        return 0;
-  ;;     out[3]=1.0/out[3];
-  ;;     objectCoordinate[0]=out[0]*out[3];
-  ;;     objectCoordinate[1]=out[1]*out[3];
-  ;;     objectCoordinate[2]=out[2]*out[3];
-  ;;     return 1;
-  ;; }
- 
+						     
 
+(defun unproject (x y width height transform)
+  (let* ((new-x (1- (/ (* 2 x) width)))
+	 (new-y (1- (/ (* 2 y) height)))
+	 (inv (sb-cga:inverse-matrix transform))
+	 (start (clinch:transform-point (clinch:make-vector new-x new-y 0) inv))
+	 (end   (clinch:transform-point (clinch:make-vector new-x new-y 1) inv)))
+    (values start
+	    (sb-cga:normalize (sb-cga:vec- end start)))))
+  

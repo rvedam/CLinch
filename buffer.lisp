@@ -59,7 +59,7 @@
 
     ;; if they didn't give a vcount, see if we can derive one...
     (when (and (not vcount) (listp data))
-      (setf vcount (length data)))
+      (setf vcount (/ (length data) stride)))
     
     (unless id
       (setf id (car (gl:gen-buffers 1))))
@@ -173,3 +173,7 @@
 	  (progn ,@body)
        (clinch::unmap-buffer ,buffer))))
 
+(defmethod get-buffer-data ((this buffer))
+  (clinch:with-mapped-buffer (ptr this :read-only)
+    (loop for i from 0 to (1- (clinch:vertex-count this))
+       collect (cffi:mem-aref ptr (clinch:qtype this) i))))

@@ -17,7 +17,7 @@
 
 (defmacro with-surface-for-texture ((texture &key (rw :write-only)
 					     (cairo-format :argb32)
-					     (surface-var 'cairo:*surface*)
+					     (surface-var 'cairo::*surface*)
 					     (width-var   (gensym))
 					     (height-var  (gensym))
 					     (bits-var    (gensym)))
@@ -46,10 +46,10 @@
 
 (defmacro with-context-for-texture ((texture &key (rw :write-only)
 					     (cairo-format :argb32)
-					     (surface-var 'cairo:*surface*)
-					     (context-var 'cairo:*context*)
-					     (width-var)
-					     (height-var))
+					     (surface-var 'cairo::*surface*)
+					     (context-var 'cairo::*context*)
+					     (width-var (gensym))
+					     (height-var (gensym)))
 				    &body body)
   "Takes a texture object, maps its data and creates a cairo:surface AND a context for it then destroys the surface and context it when done.
        texture:      A texture object to operate on.
@@ -70,3 +70,12 @@
 	      (progn ,@body))
 	 (cairo:destroy ,context-var))))
 
+
+(defmethod create-texture-from-png (path)
+  ;; Load the png image into a texture buffer.
+  (cairo:with-png-surface (path surf)
+    (let ((bits (cairo:image-surface-get-data surf :pointer-only t))
+	  (w (cairo:image-surface-get-width surf))
+	  (h (cairo:image-surface-get-height surf)))
+      
+      (make-instance 'clinch:texture :width w :height h :stride 4 :count (* w h) :data bits :qtype :unsigned-char :target :pixel-unpack-buffer))))
