@@ -8,7 +8,7 @@
     (:unsigned-char :unsigned-byte)
     (otherwise type)))
 
-(defclass buffer ()
+(defclass buffer (refcount)
   ((id
     :reader id
     :initform nil
@@ -49,6 +49,7 @@
               NOTE: use :element-array-buffer if you are creating an index buffer.
       usage:  Tells OpenGL how often you wish to access the buffer. 
      loaded: Has data been put into the buffer. Buffers without data is just future storage, just be sure to set it before you use it."
+  
   (with-slots ((type    type)
 	       (id      id)
 	       (vcount  vertex-count)
@@ -132,7 +133,8 @@
 
 (defmethod bind-buffer-to-attribute-array ((this buffer) (shader shader) name)
   "Bind buffer to a shader attribute."
-  (let ((id (cddr (get-attribute-id shader name))))
+
+  (let ((id (cdr (get-attribute-id shader name))))
     
     (gl:enable-vertex-attrib-array id)
     (gl:bind-buffer (target this) (id this))
@@ -144,6 +146,7 @@
 
 (defmethod draw-with-index-buffer ((this buffer))
   "Use this buffer as an index array and draw somthing."
+
   (gl:bind-buffer (target this) (id this))
   (%gl:draw-elements :triangles (Vertex-Count this)
 		     (qtype this)
@@ -177,3 +180,8 @@
   (clinch:with-mapped-buffer (ptr this :read-only)
     (loop for i from 0 to (1- (clinch:vertex-count this))
        collect (cffi:mem-aref ptr (clinch:qtype this) i))))
+
+
+(defmacro buffer (&body rest)
+
+  `(make-instance 'buffer ,@rest))

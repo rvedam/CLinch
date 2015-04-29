@@ -3,7 +3,7 @@
 
 (in-package #:clinch)
 
-(defclass texture (buffer)
+(defclass texture (buffer refcount)
   ((tex-id
     :accessor tex-id
     :initform nil
@@ -53,7 +53,6 @@
       format: The OpenGL Format of the Color Data. blue-green-red-alpha is default and prefered for simplicity.
       wrap-s & wrap-t: Wrap texture vertical or horizontal.
       mag-filter & min-filter: Magnification an minimization method."
-
   
   (with-slots ((tex-id tex-id)
 	       (w width)
@@ -113,6 +112,7 @@
 
 
 (defmethod unload :before ((this texture) &key)
+
   (gl:delete-textures (list (tex-id this))))
 
 
@@ -123,3 +123,7 @@ Just a passthrough to with-mapped-buffer, but I keep forgetting to use with-mapp
   `(with-mapped-buffer (,name ,buffer ,access)
      ,body))
      
+
+(defmacro texture (&body rest)
+
+  `(make-instance 'texture ,@rest))

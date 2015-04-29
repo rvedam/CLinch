@@ -3,27 +3,44 @@
 
 (in-package #:clinch)
 
-(defclass entity ()
+(defclass entity (refcount)
   ((use-gl-stack
     :initform t
     :initarg :use-gl-stack?
     :reader use-gl-stack?)
-   (VAO
-     :initform nil
-     :reader VAO)
    (shader
     :initform nil
     :initarg :shader
-    :accessor shader)
+    :reader shader)
    (indexes
     :initform nil
     :initarg :indexes
-    :accessor indexes)
+    :reader indexes)
    (render-values
     :initform nil
     :initarg :values
-    :accessor render-values)
-   (func)))
+    :reader render-values)
+   (parent
+    :initform nil
+    :initarg :parent
+    :accessor parent)
+   (vertices
+    :initform nil
+    :initarg  :vertices
+    :reader vertices)
+   (normals
+    :initform nil
+    :initarg  :normals
+    :reader normals)
+   (before-render :initform nil
+		  :initarg :before-render
+		  :accessor before-render)
+   (after-render :initform nil
+		 :initarg :after-render
+		 :accessor after-render)
+   (once          :initform nil
+		  :initarg :once
+		  :accessor once)))
 
 (defun all-indices-used? (entity)
   ;; TODO: Is the naming okay? The language used does not feel idiomatic/clear.
@@ -46,21 +63,91 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
 (defmethod initialize-instance :after ((this entity) &key (compile t) parent (strict-index nil))
   "Strict-index: ALL-INDICES-USED? on THIS"
   (when parent (add-child parent this))
-  (when compile (make-render-func this))
-  (when strict-index (all-indices-used? this)))
+  ;(when compile (make-render-func this))
+  (when strict-index (all-indices-used? this))
 
+  (let ((s (shader this)))
+    (when s (ref s)))
 
+  (let ((i (indexes this)))
+    (when i (ref i)))
+
+  (let ((vals (render-values this)))
+    (when vals
+      (loop for i in vals
+	   do (let ((v (third i)))
+		(when (typep v 'refcount)
+		  (ref v))))))      
+
+  (let ((v (vertices this)))
+    (when v (ref v)))
+
+  (let ((n (normals this)))
+    (when n (ref n))))
+  
 (defmethod print-object ((this entity) s)
   (format s "#<entity>"))
 
-(defmethod get-render-value ((this entity) name)
-  (or (second
-       (assoc name
-	      (clinch::render-values this)))
-      (loop for i in (clinch::render-values this)
-	   if (and (>= 3 (length i))
-		   (equal name (second i)))
-	   do (return (third i)))))
+(defun assoc-on-second (item lst) 
+  (or (when (equal item (cadar lst))
+	(car lst))
+      (assoc-on-second item (cdr lst))))
+
+(defmethod render-value ((this entity) name)
+  (third 
+   (assoc-on-second name (clinch::render-values this))))
+  
+(defmethod (setf render-value) (new-value (this entity) name)
+  (setf (third (assoc-on-second
+		name
+		(clinch::render-values this)))
+	new-value))
+
+(defmethod (setf shader) (new-shader (this entity))
+  (with-slots ((s shader)) this
+    
+    (when s (unref s))
+
+    (ref new-shader)
+    (setf s new-shader)))
+
+(defmethod (setf indexes) (new-index-buffer (this entity))
+  (with-slots ((i indexes)) this
+
+    (ref new-index-buffer)
+    (when i (unref i))
+    
+    (setf i new-index-buffer)))
+
+(defmethod (setf vertices) (new-vertex-buffer (this entity))
+  (with-slots ((v vertices)) this
+
+    (ref new-vertex-buffer)
+    (when v (unref v))
+
+    (setf v new-vertex-buffer)))
+
+(defmethod (setf normals) (new-normal-buffer (this entity))
+  (with-slots ((n normals)) this
+
+    (ref new-normal-buffer)
+    (when n (unref n))
+
+    (setf n new-normal-buffer)))
+
+
+(defmethod (setf render-values) (new-render-values (this entity))
+  (with-slots ((rv render-values)) this
+
+    (loop for i in rv
+       do (let ((v (third i)))
+	    (when (typep v 'refcount)
+	      (ref v))))
+    
+    (when rv (unref rv))
+    
+    (setf rv new-render-values)))
+
 
 ;; (defmethod get-primitive ((this entity) name)
 ;;   (let* ((buff      (get-render-value this name))
@@ -168,8 +255,13 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
 
 (defmethod tmp ((this entity) &key)
   (gl:matrix-mode :modelview)
+
   (when (shader this)
     (use-shader (shader this)))
+
+  (when (vertices this) (bind-buffer-to-vertex-array (vertices this)))
+  (when (normals this) (bind-buffer-to-normal-array (normals this)))
+
   (loop
      with tex-unit = 0
      for (atr-or-uni name value) in (render-values this)
@@ -182,11 +274,8 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
 		    (bind-buffer-to-attribute-array value (shader this) name))
 		   ((eql atr-or-uni :attribute) (if (atom value)
 						    (bind-static-values-to-attribute (shader this) name value)
-						    (bind-static-values-to-attribute (shader this) name value)))
-		   ((eql atr-or-uni :vertices) 
-		    (bind-buffer-to-vertex-array name))
-		   ((eql atr-or-uni :normals) 
-		    (bind-buffer-to-normal-array name))))
+						    (bind-static-values-to-attribute (shader this) name value)))))
+
   
   (draw-with-index-buffer (indexes this)))
 
@@ -233,8 +322,21 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
   ;;   (gl:load-matrix (or matrix
   ;; 			(current-transform parent)
   ;; 			(transform parent))))
-      
-  (tmp this))
+
+  (when (once this)
+    (funcall (once this) this)
+    (setf (once this) nil))
+  
+  (when (before-render this)
+    (let ((*parent* this))
+      (funcall (before-render this) this)))
+
+  (tmp this)
+
+  (when (after-render this)
+    (let ((*parent* this))
+      (funcall (after-render this) this))))
+
 ;;(funcall (slot-value this 'func) :parent-transform (or matrix parent) :projection-transform projection))
 
 (defmethod slow-render ((this entity))
@@ -286,3 +388,30 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
 		    (setf point (elt index p))))))
 	 finally (return (when dist (values dist u v point point-number)))))))
   
+(defmethod unload ((this entity) &key)
+  "Release entity resources."
+
+  (let ((s (shader this)))
+    (when s (unref s)))
+  
+  (let ((i (indexes this)))
+    (when i (unref i)))
+  
+  (let ((vals (render-values this)))
+    (when vals
+      (loop for i in vals
+	 do (let ((v (third i)))
+	      (when (typep v 'refcount)
+		(unref v))))))      
+  
+  (let ((v (vertices this)))
+    (when v (unref v)))
+  
+  (let ((n (normals this)))
+    (when n (unref n))))
+
+
+(defmacro entity (&body rest)
+
+  `(make-instance 'entity ,@rest :parent *parent*))
+     
