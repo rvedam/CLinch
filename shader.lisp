@@ -3,7 +3,7 @@
 
 (in-package #:clinch)
 
-(defclass shader ()
+(defclass shader (refcount)
   ((name
     :reader name
     :initform nil)
@@ -93,9 +93,12 @@
     ;; shaders. This step actually puts the attached shader together
     ;; to form the program.
     (gl:link-program program)
-
+    
+    (setf (slot-value this 'uniforms) (make-hash-table :test 'equal))
+    (setf (slot-value this 'attributes) (make-hash-table :test 'equal))
+      
     (when attributes
-      (setf (slot-value this 'attributes) (make-hash-table :test 'equal))
+
       (loop for (name type) in attributes
 	   do (setf (gethash name (slot-value this 'attributes))
 		    (cons type
@@ -103,37 +106,13 @@
       
 
     (when uniforms
-      (setf (slot-value this 'uniforms) (make-hash-table :test 'equal))
       (loop for (name type) in uniforms
 	 do (setf (gethash name (slot-value this 'uniforms))
 		  (cons type
 			(gl:Get-Uniform-Location program name)))))
       
 
-    (when name (setf (slot-value this 'name) name))
-
-    (let ((v fs)
-	  (f fs)
-	  (g geo)
-	  (p program))
-
-
-    (trivial-garbage:finalize this
-			      (lambda () (when p
-					   (when v
-					     (gl:detach-shader p v)
-					     (gl:delete-shader v))
-					   
-					   (when f
-					     (gl:delete-shader f)
-					     (gl:detach-shader p f))
-					   
-					   (when g
-					     (gl:detach-shader p g)
-					     (gl:delete-shader g))
-					   
-					   (gl:delete-program p)))))))
-
+    (when name (setf (slot-value this 'name) name))))
 
 
 (defmethod use-shader ((this shader) &key)
@@ -194,7 +173,6 @@
 
 (defmethod unload ((this shader) &key)
   "Unloads and releases all shader resources."
-  (trivial-garbage:cancel-finalization this)
   
   (with-slots ((vs vert-shader)
 	       (fs frag-shader)

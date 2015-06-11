@@ -3,26 +3,23 @@
 
 (in-package #:clinch)
 
-(defclass entity ()
+(defclass entity (refcount)
   ((use-gl-stack
     :initform t
     :initarg :use-gl-stack?
     :reader use-gl-stack?)
-   (VAO
-     :initform nil
-     :reader VAO)
    (shader
     :initform nil
     :initarg :shader
-    :accessor shader)
+    :reader shader)
    (indexes
     :initform nil
     :initarg :indexes
-    :accessor indexes)
+    :reader indexes)
    (render-values
     :initform nil
     :initarg :values
-    :accessor render-values)
+    :reader render-values)
    (parent
     :initform nil
     :initarg :parent
@@ -30,11 +27,11 @@
    (vertices
     :initform nil
     :initarg  :vertices
-    :accessor vertices)
+    :reader vertices)
    (normals
     :initform nil
     :initarg  :normals
-    :accessor normals)
+    :reader normals)
    (before-render :initform nil
 		  :initarg :before-render
 		  :accessor before-render)
@@ -67,9 +64,27 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
   "Strict-index: ALL-INDICES-USED? on THIS"
   (when parent (add-child parent this))
   ;(when compile (make-render-func this))
-  (when strict-index (all-indices-used? this)))
+  (when strict-index (all-indices-used? this))
 
+  (let ((s (shader this)))
+    (when s (ref s)))
 
+  (let ((i (indexes this)))
+    (when i (ref i)))
+
+  (let ((vals (render-values this)))
+    (when vals
+      (loop for i in vals
+	   do (let ((v (third i)))
+		(when (typep v 'refcount)
+		  (ref v))))))      
+
+  (let ((v (vertices this)))
+    (when v (ref v)))
+
+  (let ((n (normals this)))
+    (when n (ref n))))
+  
 (defmethod print-object ((this entity) s)
   (format s "#<entity>"))
 
@@ -88,6 +103,50 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
 		(clinch::render-values this)))
 	new-value))
 
+(defmethod (setf shader) (new-shader (this entity))
+  (with-slots ((s shader)) this
+    
+    (when s (unref s))
+
+    (ref new-shader)
+    (setf s new-shader)))
+
+(defmethod (setf indexes) (new-index-buffer (this entity))
+  (with-slots ((i indexes)) this
+
+    (ref new-index-buffer)
+    (when i (unref i))
+    
+    (setf i new-index-buffer)))
+
+(defmethod (setf vertices) (new-vertex-buffer (this entity))
+  (with-slots ((v vertices)) this
+
+    (ref new-vertex-buffer)
+    (when v (unref v))
+
+    (setf v new-vertex-buffer)))
+
+(defmethod (setf normals) (new-normal-buffer (this entity))
+  (with-slots ((n normals)) this
+
+    (ref new-normal-buffer)
+    (when n (unref n))
+
+    (setf n new-normal-buffer)))
+
+
+(defmethod (setf render-values) (new-render-values (this entity))
+  (with-slots ((rv render-values)) this
+
+    (loop for i in rv
+       do (let ((v (third i)))
+	    (when (typep v 'refcount)
+	      (ref v))))
+    
+    (when rv (unref rv))
+    
+    (setf rv new-render-values)))
 
 
 ;; (defmethod get-primitive ((this entity) name)
@@ -206,6 +265,7 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
   (loop
      with tex-unit = 0
      for (atr-or-uni name value) in (render-values this)
+     if (typep value 'function) do (setf value (funcall value))
      collect (cond ((and (eql atr-or-uni :uniform)
 			 (typep value 'texture)) (prog1 (bind-sampler value (shader this) name tex-unit) (incf tex-unit)))
 		   ((eql atr-or-uni :uniform) (attach-uniform (shader this) name value))
@@ -329,6 +389,28 @@ none of the indices are below or above the range 0 to (vertices_length/stride - 
 		    (setf point (elt index p))))))
 	 finally (return (when dist (values dist u v point point-number)))))))
   
+(defmethod unload ((this entity) &key)
+  "Release entity resources."
+
+  (let ((s (shader this)))
+    (when s (unref s)))
+  
+  (let ((i (indexes this)))
+    (when i (unref i)))
+  
+  (let ((vals (render-values this)))
+    (when vals
+      (loop for i in vals
+	 do (let ((v (third i)))
+	      (when (typep v 'refcount)
+		(unref v))))))      
+  
+  (let ((v (vertices this)))
+    (when v (unref v)))
+  
+  (let ((n (normals this)))
+    (when n (unref n))))
+
 
 (defmacro entity (&body rest)
 

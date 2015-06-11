@@ -8,10 +8,10 @@
   :license "MIT"
   :version "0.1"
   :depends-on (#:cl-opengl
-	       #:sb-cga
-	       #:trivial-garbage)
+	       #:sb-cga)
   :components ((:file "package")
 	       (:file "clinch")
+	       (:file "refcount")
 	       (:file "element")
 	       (:file "transform")
 	       (:file "vector")
@@ -23,6 +23,7 @@
 	       (:file "viewport")
 	       (:file "pipeline")
 	       (:file "renderbuffer")
-	       (:file "framebuffer")))
+	       (:file "framebuffer")
+	       (:file "shapes")))
 
 
